@@ -10,11 +10,11 @@ data Input a = Input { getInput :: Vector a
                      } deriving Show
 
 prepareInput :: (Show a, FiniteBits a, Ord a, Num a, Storable a) => Vector a -> Input a
-prepareInput vec = do
+prepareInput vec =
 
-        let bitsPerElement = finiteBitSize maximumInputSymbol
-            leadingZeros = countLeadingZeros maximumInputSymbol
-            numRequiredLayers = bitsPerElement - leadingZeros
+    let bitsPerElement = finiteBitSize maximumInputSymbol
+        leadingZeros = countLeadingZeros maximumInputSymbol
+        numRequiredLayers = bitsPerElement - leadingZeros
 
     in Input { getInput = vec
              , getRequiredLayers = numRequiredLayers
