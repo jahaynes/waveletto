@@ -9,7 +9,7 @@ import Data.Vector.Storable         (Storable)
 class FromDirectory structure where
 
     {- Load this structure from a directory -}
-    load :: IndexPath -> IO structure
+    load :: IndexPath -> IO (Maybe structure)
 
     {- Create and return a new structure in this directory from a given vector -}
     create :: (Bits a, Ord a, Storable a) => IndexPath -> Input a -> IO structure

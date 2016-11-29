@@ -1,6 +1,6 @@
 module Data.Wavelet.Internal.Shared where
 
-import System.Directory         (removeFile)
+import System.Directory         (removeFile, removeDirectoryRecursive)
 import Control.Exception        (catch, throwIO)
 import System.IO.Error          (isDoesNotExistError)
 
@@ -11,8 +11,14 @@ quot1 a b =
         (x,0) -> x
         (x,_) -> x + 1
 
-removeIfExists :: FilePath -> IO ()
-removeIfExists fileName = removeFile fileName `catch` handleExists
+removeFileIfExists :: FilePath -> IO ()
+removeFileIfExists fileName = removeFile fileName `catch` handleExists
+    where
+    handleExists e | isDoesNotExistError e = return ()
+                   | otherwise = throwIO e
+
+removeDirIfExists :: FilePath -> IO ()
+removeDirIfExists fileName = removeDirectoryRecursive fileName `catch` handleExists
     where
     handleExists e | isDoesNotExistError e = return ()
                    | otherwise = throwIO e

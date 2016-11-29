@@ -4,11 +4,12 @@ module Data.Wavelet.Matrix where
 
 import Data.Wavelet
 import Data.Wavelet.Storage
+import Data.Wavelet.Auxiliary.RankBlocks            (RankBlocks)
 import Data.Wavelet.Internal.Buffer
 import Data.Wavelet.Internal.BitOps                 (rnk1Vector64)
 import Data.Wavelet.Internal.Input
 import Data.Wavelet.Internal.Partition
-import Data.Wavelet.Internal.Shared                 (quot1, removeIfExists)
+import Data.Wavelet.Internal.Shared                 (quot1, removeDirIfExists, removeFileIfExists)
 import Data.Wavelet.Internal.Types
 
 import           Control.Monad                      (forM_)
@@ -27,6 +28,7 @@ data WaveletMatrix = WaveletMatrix
                    , getSignalLength :: {-# UNPACK #-} !Int
                    , getNumLayers    :: {-# UNPACK #-} !RequiredLayers
                    , getW64sPerLayer :: {-# UNPACK #-} !Int
+                   , getRankBlocks   :: Maybe RankBlocks
                    } deriving Show
 
 newtype ZeroCounts = ZeroCounts (Vector Int)
@@ -54,7 +56,7 @@ filenameGeometry = "geometry"
 instance FromDirectory WaveletMatrix where
 
     {- Load this structure from a directory -}
-    load :: IndexPath -> IO WaveletMatrix
+    load :: IndexPath -> IO (Maybe WaveletMatrix)
     load indexPath = do
 
         [waveletMatrixPath,zeroCountsPath,geometryPath] <- getFilePaths indexPath
@@ -63,19 +65,26 @@ instance FromDirectory WaveletMatrix where
         zeroCounts <- ZeroCounts <$> unsafeMMapVector zeroCountsPath Nothing
         [inputLength, requiredLayers, w64sPerLayer] <-
             VS.toList . VS.take 3 <$> unsafeMMapVector geometryPath Nothing
-    
-        return (WaveletMatrix
-                   payload
-                   zeroCounts
-                   inputLength
-                   requiredLayers
-                   w64sPerLayer)
+
+        let maybeRankBlocks = undefined
+
+        return . Just $ WaveletMatrix
+                            payload
+                            zeroCounts
+                            inputLength
+                            requiredLayers
+                            w64sPerLayer
+                            maybeRankBlocks
 
     {- Create and return a new structure in this directory from a given vector -}
     create :: (Bits a, Ord a, Storable a) => IndexPath -> Input a -> IO WaveletMatrix
     create indexPath input = do
+        removeDirIfExists indexPath
         usingBuffer input indexPath $ createWaveletMatrix input indexPath
-        load indexPath
+        mWaveletMatrix <- load indexPath
+        case mWaveletMatrix of
+            Nothing -> error "Failed to load newly-created WaveletMatrix"
+            Just x -> return x
 
 instance Wavelet WaveletMatrix where
 
@@ -114,7 +123,7 @@ waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
     zeroesForLayer wm l = (\(ZeroCounts zc) -> zc ! l) (getZeroCounts wm)
 
     rnk1 :: WaveletMatrix -> Int -> Int
-    rnk1 (WaveletMatrix payload _ signalLength _ _) i
+    rnk1 (WaveletMatrix payload _ signalLength _ _ _) i
         | i > signalLength = error "Sanity check failed (i > w64sPerLayer)"
         | otherwise = rnk1Vector64 i payload
 
@@ -127,11 +136,15 @@ down wm n = case (\(ZeroCounts z) -> VS.drop n z) (getZeroCounts wm) of
                           (getSignalLength wm)
                           (getNumLayers wm - n)
                           (getW64sPerLayer wm)
+                          (getRankBlocks wm)
 
 getFilePaths :: FilePath -> IO [FilePath]
 getFilePaths indexPath =
     mapM (\subPath -> makeAbsolute . concat $ [indexPath, "/", subPath])
         [filenameWaveletMatrix,filenameZeroCounts,filenameGeometry]                              
+
+augment :: WaveletMatrix -> IO WaveletMatrix
+augment wm = undefined
 
 createWaveletMatrix :: (Bits a, Ord a, Storable a) => Input a -> IndexPath -> Buffer a ->IO ()
 createWaveletMatrix input indexPath buffer = do
@@ -168,7 +181,7 @@ createWaveletMatrix input indexPath buffer = do
         setZeroCount zeroCounts layer zeroes      
         inPlaceStableSortByBitN (getBuffer buffer) buffer2Path layer
         
-    removeIfExists buffer2Path
+    removeFileIfExists buffer2Path
 
     where
     setZeroCount :: IOVector Int -> LayerNum -> ZeroBits -> IO ()

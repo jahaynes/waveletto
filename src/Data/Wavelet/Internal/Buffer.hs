@@ -18,7 +18,7 @@ usingBuffer input indexPath f = do
     createDirectoryIfMissing True indexPath
 
     bufferPath <- makeAbsolute $ concat [indexPath, "/", "buf.tmp"]
-    removeIfExists bufferPath
+    removeFileIfExists bufferPath
 
     buf <- unsafeMMapMVector bufferPath ReadWriteEx (Just (0, getInputLength input))
     copy buf (getInput input)
@@ -26,4 +26,4 @@ usingBuffer input indexPath f = do
     f Buffer { getBufferPath = bufferPath
              , getBuffer = buf }
 
-    removeIfExists bufferPath
+    removeFileIfExists bufferPath
