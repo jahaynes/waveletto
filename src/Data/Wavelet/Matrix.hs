@@ -54,7 +54,7 @@ filenameZeroCounts = "zero_counts"
 instance FromDirectory WaveletMatrix where
 
     {- Load this structure from a directory -}
-    load :: IndexPath -> IO (Maybe WaveletMatrix)
+    load :: IndexPath -> IO WaveletMatrix
     load indexPath = do
 
         [waveletMatrixPath,zeroCountsPath] <- getFilePaths indexPath
@@ -65,21 +65,18 @@ instance FromDirectory WaveletMatrix where
 
         rankBlocks <- loadRankBlocks indexPath geometry
 
-        return . Just $ WaveletMatrix
-                            payload
-                            zeroCounts
-                            geometry
-                            rankBlocks
+        return $ WaveletMatrix
+                     payload
+                     zeroCounts
+                     geometry
+                     rankBlocks
 
     {- Create and return a new structure in this directory from a given vector -}
     create :: (Bits a, Ord a, Storable a) => IndexPath -> Input a -> IO WaveletMatrix
     create indexPath input = do
         removeDirIfExists indexPath
-        usingBuffer input indexPath $ createWaveletMatrix input indexPath
-        mWaveletMatrix <- load indexPath
-        case mWaveletMatrix of
-            Nothing -> error "Failed to load newly-created WaveletMatrix"
-            Just x -> return x
+        usingBuffer input indexPath $
+            createWaveletMatrix input indexPath
 
 instance Wavelet WaveletMatrix where
 
@@ -135,17 +132,11 @@ waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
                     if blockLookup == -1
                         then 0
                         else rbvec ! blockLookup
-                lastBits = rankSkip (fullBlocks * R.blockSize) wm remainBits
+                lastBits = rankSkip wm (fullBlocks * R.blockSize) remainBits
             in precomputedRank + lastBits
 
-rankSkip :: Int -> WaveletMatrix -> Int -> Int
-rankSkip wordsToSkip wm i = do
-    let skippedPayload = VS.drop wordsToSkip
-                       . VS.take (getW64sPerLayer . getGeometry $ wm)
-                       . getPayload
-                       $ wm
-
-    go 0 0 skippedPayload i
+rankSkip :: WaveletMatrix -> Int -> Int -> Int
+rankSkip wm wordsToSkip = go 0 wordsToSkip (getPayload wm)
     where
     go !acc j vec remaining
         | remaining < 64 =
@@ -172,7 +163,7 @@ getFilePaths indexPath =
     where
     makeSubPath subPath = makeAbsolute . concat $ [indexPath, "/", subPath]
     
-createWaveletMatrix :: (Bits a, Ord a, Storable a) => Input a -> IndexPath -> Buffer a ->IO ()
+createWaveletMatrix :: (Bits a, Ord a, Storable a) => Input a -> IndexPath -> Buffer a -> IO WaveletMatrix
 createWaveletMatrix input indexPath buffer = do
 
     let requiredLayers = getRequiredLayers input
@@ -206,8 +197,14 @@ createWaveletMatrix input indexPath buffer = do
     removeFileIfExists buffer2Path
 
     payload' <- VS.unsafeFreeze payload
-    _ <- createRankBlocks indexPath payload' geometry
-    return ()
+    zeroCounts' <- ZeroCounts <$> VS.unsafeFreeze zeroCounts
+    rankBlocks <- createRankBlocks indexPath payload' geometry
+
+    return $ WaveletMatrix
+                 payload'
+                 zeroCounts'
+                 geometry
+                 rankBlocks
 
     where
     setZeroCount :: IOVector Int -> LayerNum -> ZeroBits -> IO ()
