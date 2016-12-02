@@ -18,6 +18,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Data.Wavelet
                        Data.Wavelet.Matrix
+                       Data.Wavelet.Matrix.Geometry
                        Data.Wavelet.Storage
                        Data.Wavelet.Auxiliary.RankBlocks
                        Data.Wavelet.Internal.BitOps
