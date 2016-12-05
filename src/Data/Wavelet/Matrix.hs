@@ -81,8 +81,8 @@ instance FromDirectory WaveletMatrix where
 instance Wavelet WaveletMatrix where
 
     {- Return the element at a given position -}
-    access :: WaveletMatrix -> Position -> a
-    access = error "Access not yet defined over Wavelet Matrix"
+    access :: Bits a => WaveletMatrix -> Position -> a
+    access = waveletMatrixAccess
 
     {- Count the number of a given symbol up to a given position -}
     rank :: Bits a => WaveletMatrix -> a -> Position -> Count
@@ -96,14 +96,40 @@ instance Wavelet WaveletMatrix where
     length :: WaveletMatrix -> Int
     length = G.getInputLength . getGeometry
 
-waveletMatrixRank :: Bits a => WaveletMatrix -> a -> Int -> Int
+
+waveletMatrixAccess :: Bits a => WaveletMatrix -> Position -> a
+waveletMatrixAccess wm_ = accs' zeroBits 0 (Just wm_)
+    where
+    accs' !acc _   Nothing _ = acc
+    accs'  acc l (Just wm) i = do
+
+        -- Find which bit in which word to test
+        let (wd, bt) = i `quotRem` 64
+
+        -- Test it
+            tested = testBit (getPayload wm ! wd) bt
+
+        -- Work out the position to test in the next layer
+            i' = if tested
+                     then rnk1Fast wm i + zeroesAtCurrentLayer wm
+                     else i - rnk1Fast wm i
+
+        -- If we processed a set bit, set a bit on our accumulator
+            acc' = if tested
+                     then setBit acc l
+                     else acc
+
+        -- Process the next layer
+        accs' acc' (l+1) (down wm) i'
+
+waveletMatrixRank :: Bits a => WaveletMatrix -> a -> Position -> Count
 waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
 
     where
-    rnk' :: Maybe WaveletMatrix -> Int -> Int -> Int -> Int
+    rnk' :: Maybe WaveletMatrix -> Int -> Int -> Int -> Count
     rnk'   Nothing _  i p = i - p
     rnk' (Just wm) l  i p
-        | testBit a l = let zl = zeroesForLayer wm 0
+        | testBit a l = let zl = zeroesAtCurrentLayer wm
                             p' = zl + rnk1Fast wm p
                             i' = zl + rnk1Fast wm i
                         in rnk' (down wm) (l+1) i' p'
@@ -111,29 +137,30 @@ waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
                           i' = i - rnk1Fast wm i
                       in rnk' (down wm) (l+1) i' p'
 
-    zeroesForLayer :: WaveletMatrix -> Int -> Int
-    zeroesForLayer wm l = (\(ZeroCounts zc) -> zc ! l) (getZeroCounts wm)
+{-  Just for reference  
+rnk1Slow :: WaveletMatrix -> Int -> Int
+rnk1Slow wm i
+    | i > (G.getInputLength . getGeometry $ wm) =
+                error "Sanity check failed (i > w64sPerLayer)"
+    | otherwise = rnk1Vector64 i (getPayload wm) -}
 
-    rnk1Slow :: WaveletMatrix -> Int -> Int
-    rnk1Slow wm i
-        | i > (G.getInputLength . getGeometry $ wm) =
-                  error "Sanity check failed (i > w64sPerLayer)"
-        | otherwise = rnk1Vector64 i (getPayload wm)
+zeroesAtCurrentLayer :: WaveletMatrix -> Int
+zeroesAtCurrentLayer = (\(ZeroCounts zc) -> zc ! 0) . getZeroCounts
 
-    rnk1Fast :: WaveletMatrix -> Int -> Int
-    rnk1Fast wm i
-        | i > (G.getInputLength . getGeometry $ wm) =
-                  error "Sanity check failed (i > w64sPerLayer)"
-        | otherwise =
-            let (R.RankBlocks _ rbvec) = getRankBlocks wm
-                (fullBlocks,remainBits) = i `quotRem` (64 * R.blockSize)
-                blockLookup = fullBlocks - 1
-                precomputedRank =
-                    if blockLookup == -1
-                        then 0
-                        else rbvec ! blockLookup
-                lastBits = rankSkip wm (fullBlocks * R.blockSize) remainBits
-            in precomputedRank + lastBits
+rnk1Fast :: WaveletMatrix -> Int -> Int
+rnk1Fast wm i
+    | i > (G.getInputLength . getGeometry $ wm) =
+                error "Sanity check failed (i > w64sPerLayer)"
+    | otherwise =
+        let (R.RankBlocks _ rbvec) = getRankBlocks wm
+            (fullBlocks,remainBits) = i `quotRem` (64 * R.blockSize)
+            blockLookup = fullBlocks - 1
+            precomputedRank =
+                if blockLookup == -1
+                    then 0
+                    else rbvec ! blockLookup
+            lastBits = rankSkip wm (fullBlocks * R.blockSize) remainBits
+        in precomputedRank + lastBits
 
 rankSkip :: WaveletMatrix -> Int -> Int -> Int
 rankSkip wm wordsToSkip = go 0 wordsToSkip (getPayload wm)
