@@ -4,16 +4,19 @@ module Data.Wavelet.Matrix where
 
 import Data.Wavelet
 import Data.Wavelet.Storage
-import Data.Wavelet.Auxiliary.RankBlocks            (RankBlocks)
+import Data.Wavelet.Auxiliary.RankBlocks       (RankBlocks, createRankBlocks, loadRankBlocks)
+import qualified Data.Wavelet.Auxiliary.RankBlocks as R
+import Data.Wavelet.Matrix.Geometry                 (Geometry (..))
+import qualified Data.Wavelet.Matrix.Geometry as G
 import Data.Wavelet.Internal.Buffer
 import Data.Wavelet.Internal.BitOps                 (rnk1Vector64)
-import Data.Wavelet.Internal.Input
+import Data.Wavelet.Internal.Input as I
 import Data.Wavelet.Internal.Partition
 import Data.Wavelet.Internal.Shared                 (quot1, removeDirIfExists, removeFileIfExists)
 import Data.Wavelet.Internal.Types
 
 import           Control.Monad                      (forM_)
-import           Data.Bits                          (Bits, popCount, setBit, testBit)
+import           Data.Bits                          
 import           Data.Vector.Storable               (Vector, Storable, (!))
 import qualified Data.Vector.Storable         as VS
 import           Data.Vector.Storable.Mutable       (IOVector)
@@ -25,10 +28,8 @@ import           System.Directory                   (makeAbsolute)
 data WaveletMatrix = WaveletMatrix 
                    { getPayload      :: Vector Word64
                    , getZeroCounts   :: ZeroCounts
-                   , getSignalLength :: {-# UNPACK #-} !Int
-                   , getNumLayers    :: {-# UNPACK #-} !RequiredLayers
-                   , getW64sPerLayer :: {-# UNPACK #-} !Int
-                   , getRankBlocks   :: Maybe RankBlocks
+                   , getGeometry     :: Geometry
+                   , getRankBlocks   :: RankBlocks
                    } deriving Show
 
 newtype ZeroCounts = ZeroCounts (Vector Int)
@@ -50,41 +51,32 @@ filenameWaveletMatrix = "wavelet_matrix"
 filenameZeroCounts :: FilePath
 filenameZeroCounts = "zero_counts"
 
-filenameGeometry :: FilePath
-filenameGeometry = "geometry"
-
 instance FromDirectory WaveletMatrix where
 
     {- Load this structure from a directory -}
-    load :: IndexPath -> IO (Maybe WaveletMatrix)
+    load :: IndexPath -> IO WaveletMatrix
     load indexPath = do
 
-        [waveletMatrixPath,zeroCountsPath,geometryPath] <- getFilePaths indexPath
+        [waveletMatrixPath,zeroCountsPath] <- getFilePaths indexPath
 
         payload <- unsafeMMapVector waveletMatrixPath Nothing
         zeroCounts <- ZeroCounts <$> unsafeMMapVector zeroCountsPath Nothing
-        [inputLength, requiredLayers, w64sPerLayer] <-
-            VS.toList . VS.take 3 <$> unsafeMMapVector geometryPath Nothing
+        geometry <- G.loadGeometry indexPath
 
-        let maybeRankBlocks = undefined
+        rankBlocks <- loadRankBlocks indexPath geometry
 
-        return . Just $ WaveletMatrix
-                            payload
-                            zeroCounts
-                            inputLength
-                            requiredLayers
-                            w64sPerLayer
-                            maybeRankBlocks
+        return $ WaveletMatrix
+                     payload
+                     zeroCounts
+                     geometry
+                     rankBlocks
 
     {- Create and return a new structure in this directory from a given vector -}
     create :: (Bits a, Ord a, Storable a) => IndexPath -> Input a -> IO WaveletMatrix
     create indexPath input = do
         removeDirIfExists indexPath
-        usingBuffer input indexPath $ createWaveletMatrix input indexPath
-        mWaveletMatrix <- load indexPath
-        case mWaveletMatrix of
-            Nothing -> error "Failed to load newly-created WaveletMatrix"
-            Just x -> return x
+        usingBuffer input indexPath $
+            createWaveletMatrix input indexPath
 
 instance Wavelet WaveletMatrix where
 
@@ -102,7 +94,7 @@ instance Wavelet WaveletMatrix where
 
     {- Return the length of the source -}
     length :: WaveletMatrix -> Int
-    length = error "Length not yet defined over Wavelet Matrix"
+    length = G.getInputLength . getGeometry
 
 waveletMatrixRank :: Bits a => WaveletMatrix -> a -> Int -> Int
 waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
@@ -112,53 +104,78 @@ waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
     rnk'   Nothing _  i p = i - p
     rnk' (Just wm) l  i p
         | testBit a l = let zl = zeroesForLayer wm 0
-                            p' = zl + rnk1 wm p
-                            i' = zl + rnk1 wm i
-                        in rnk' (down wm 1) (l+1) i' p'
-        | otherwise = let p' = p - rnk1 wm p
-                          i' = i - rnk1 wm i
-                      in rnk' (down wm 1) (l+1) i' p'
+                            p' = zl + rnk1Fast wm p
+                            i' = zl + rnk1Fast wm i
+                        in rnk' (down wm) (l+1) i' p'
+        | otherwise = let p' = p - rnk1Fast wm p
+                          i' = i - rnk1Fast wm i
+                      in rnk' (down wm) (l+1) i' p'
 
     zeroesForLayer :: WaveletMatrix -> Int -> Int
     zeroesForLayer wm l = (\(ZeroCounts zc) -> zc ! l) (getZeroCounts wm)
 
-    rnk1 :: WaveletMatrix -> Int -> Int
-    rnk1 (WaveletMatrix payload _ signalLength _ _ _) i
-        | i > signalLength = error "Sanity check failed (i > w64sPerLayer)"
-        | otherwise = rnk1Vector64 i payload
+    rnk1Slow :: WaveletMatrix -> Int -> Int
+    rnk1Slow wm i
+        | i > (G.getInputLength . getGeometry $ wm) =
+                  error "Sanity check failed (i > w64sPerLayer)"
+        | otherwise = rnk1Vector64 i (getPayload wm)
 
-down :: WaveletMatrix -> Int -> Maybe WaveletMatrix
-down wm n = case (\(ZeroCounts z) -> VS.drop n z) (getZeroCounts wm) of
+    rnk1Fast :: WaveletMatrix -> Int -> Int
+    rnk1Fast wm i
+        | i > (G.getInputLength . getGeometry $ wm) =
+                  error "Sanity check failed (i > w64sPerLayer)"
+        | otherwise =
+            let (R.RankBlocks _ rbvec) = getRankBlocks wm
+                (fullBlocks,remainBits) = i `quotRem` (64 * R.blockSize)
+                blockLookup = fullBlocks - 1
+                precomputedRank =
+                    if blockLookup == -1
+                        then 0
+                        else rbvec ! blockLookup
+                lastBits = rankSkip wm (fullBlocks * R.blockSize) remainBits
+            in precomputedRank + lastBits
+
+rankSkip :: WaveletMatrix -> Int -> Int -> Int
+rankSkip wm wordsToSkip = go 0 wordsToSkip (getPayload wm)
+    where
+    go !acc j vec remaining
+        | remaining < 64 =
+            let mask = (1 `shiftL` remaining) - 1
+            in
+            acc + popCount ( mask .&. (vec ! j) )
+        | otherwise =
+            let count = popCount (vec ! j)
+            in
+            go (acc+count) (j+1) vec (remaining-64)
+
+down :: WaveletMatrix -> Maybe WaveletMatrix
+down wm = case (\(ZeroCounts z) -> VS.drop 1 z) (getZeroCounts wm) of
     z' | VS.null z' -> Nothing
        | otherwise -> Just $ WaveletMatrix
-                          (VS.drop (n * getW64sPerLayer wm) (getPayload wm))
+                          (VS.drop (1 * G.getW64sPerLayer (getGeometry wm)) (getPayload wm))
                           (ZeroCounts z')
-                          (getSignalLength wm)
-                          (getNumLayers wm - n)
-                          (getW64sPerLayer wm)
-                          (getRankBlocks wm)
+                          (G.down (getGeometry wm))
+                          (R.down (getRankBlocks wm))
 
 getFilePaths :: FilePath -> IO [FilePath]
 getFilePaths indexPath =
-    mapM (\subPath -> makeAbsolute . concat $ [indexPath, "/", subPath])
-        [filenameWaveletMatrix,filenameZeroCounts,filenameGeometry]                              
-
-augment :: WaveletMatrix -> IO WaveletMatrix
-augment wm = undefined
-
-createWaveletMatrix :: (Bits a, Ord a, Storable a) => Input a -> IndexPath -> Buffer a ->IO ()
+    mapM makeSubPath [filenameWaveletMatrix,filenameZeroCounts]
+    where
+    makeSubPath subPath = makeAbsolute . concat $ [indexPath, "/", subPath]
+    
+createWaveletMatrix :: (Bits a, Ord a, Storable a) => Input a -> IndexPath -> Buffer a -> IO WaveletMatrix
 createWaveletMatrix input indexPath buffer = do
 
     let requiredLayers = getRequiredLayers input
-        inputLength = getInputLength input
+        inputLength = I.getInputLength input
         w64sPerLayer = inputLength `quot1` 64
         outputSize = w64sPerLayer * requiredLayers
 
-    [waveletMatrixPath,zeroCountsPath,geometryPath] <- getFilePaths indexPath
+    [waveletMatrixPath,zeroCountsPath] <- getFilePaths indexPath
 
     buffer2Path <- makeAbsolute $ concat [indexPath, "/", "buf2.tmp"]
 
-    matrix <- unsafeMMapMVector
+    payload <- unsafeMMapMVector
                   waveletMatrixPath
                   ReadWriteEx
                   (Just (0, outputSize)) :: IO (IOVector Word64)
@@ -168,20 +185,26 @@ createWaveletMatrix input indexPath buffer = do
                       ReadWriteEx
                       (Just (0, requiredLayers)) :: IO (IOVector Int)
 
-    geometryFile <- unsafeMMapMVector
-                       geometryPath
-                       ReadWriteEx
-                       (Just (0, 3))
+    let geometry = Geometry inputLength requiredLayers w64sPerLayer
+    G.saveGeometry indexPath geometry
 
-    VS.copy geometryFile (VS.fromList [inputLength, requiredLayers, w64sPerLayer])
-    
     forM_ (getLayerRange requiredLayers) $ \layer -> do
         vs <- VS.unsafeFreeze (getBuffer buffer)
-        zeroes <- gatherAndWriteOutBits layer vs matrix
+        zeroes <- gatherAndWriteOutBits layer vs payload
         setZeroCount zeroCounts layer zeroes      
         inPlaceStableSortByBitN (getBuffer buffer) buffer2Path layer
-        
+
     removeFileIfExists buffer2Path
+
+    payload' <- VS.unsafeFreeze payload
+    zeroCounts' <- ZeroCounts <$> VS.unsafeFreeze zeroCounts
+    rankBlocks <- createRankBlocks indexPath payload' geometry
+
+    return $ WaveletMatrix
+                 payload'
+                 zeroCounts'
+                 geometry
+                 rankBlocks
 
     where
     setZeroCount :: IOVector Int -> LayerNum -> ZeroBits -> IO ()
@@ -193,7 +216,7 @@ createWaveletMatrix input indexPath buffer = do
     gatherAndWriteOutBits :: (Bits a, Storable a) => LayerNum -> Vector a -> IOVector Word64 -> IO ZeroBits
     gatherAndWriteOutBits (LayerNum l) vs dest = do
 
-        let bitsInLayer = getInputLength input
+        let bitsInLayer = I.getInputLength input
             sizeOfLayer = bitsInLayer `quot1` 64
             writeOffset = l * sizeOfLayer
         OneBits ones <- writeOutBitLayer writeOffset gatherBitLayer
