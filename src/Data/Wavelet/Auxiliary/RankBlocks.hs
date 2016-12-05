@@ -36,7 +36,6 @@ createRankBlocks indexPath payload geometry = do
         let fileSize = numLayers * (w64sPerLayer `quot` blockSize)
         rankPath <- getRankPath indexPath
         removeFileIfExists rankPath
-        print ("filesize", fileSize)
         unsafeMMapMVector rankPath ReadWriteEx (Just (0, fileSize)) :: IO (VM.IOVector Int)
 
     let numW64sInEachRankLayer = (w64sPerLayer `quot1` blockSize) - 1
@@ -45,7 +44,7 @@ createRankBlocks indexPath payload geometry = do
 
     where
     processLayer :: VM.IOVector Int -> Int -> [Vector Word64] -> IO ()
-    processLayer vm outPtr         [] = print ("outPtr", outPtr)
+    processLayer vm outPtr         [] = return ()
     processLayer vm outPtr (layer:ls) = do
 
         let payLoadBlocks = chunksOf blockSize layer
