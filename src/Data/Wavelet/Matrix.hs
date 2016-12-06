@@ -175,6 +175,51 @@ rankSkip wm wordsToSkip = go 0 wordsToSkip (getPayload wm)
             in
             go (acc+count) (j+1) vec (remaining-64)
 
+{- Find the position of the nth 1-bit in a vector -}
+select0Vec :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
+select0Vec v = go 0 (VS.length v)
+    where
+    go i len nth
+        | i >= len = error "select1Vec rolled off edge"
+        | otherwise =
+            let x = v ! i
+                width = finiteBitSize x
+                nth' = nth - (width - popCount x)
+            in if nth' < 0
+                then (width * i) + select0El x nth
+                else go (i+1) len nth'
+
+{- Find the position of the nth 1-bit in a vector -}
+select1Vec :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
+select1Vec v = go 0 (VS.length v)
+    where
+    go i len nth
+        | i >= len = error "select1Vec rolled off edge"
+        | otherwise = 
+            let x = v ! i
+                nth' = nth - popCount x
+            in if nth' < 0
+                then (finiteBitSize x * i) + select1El x nth
+                else go (i+1) len nth'
+
+{- Find the position of the nth 0-bit in a word -}
+select0El :: FiniteBits a => a -> Int -> Int
+select0El x = go 0
+    where
+    go :: Int -> Int -> Int
+    go i nth | i >= finiteBitSize x = error "select1 rolled off edge"
+             | testBit x i = go (i+1) nth
+             | otherwise   = if nth == 0 then i else go (i+1) (nth-1)
+
+{- Find the position of the nth 1-bit in a word -}
+select1El :: FiniteBits a => a -> Int -> Int
+select1El x = go 0
+    where
+    go :: Int -> Int -> Int
+    go i nth | i >= finiteBitSize x = error "select1 rolled off edge"
+             | testBit x i = if nth == 0 then i else go (i+1) (nth-1)
+             | otherwise   = go (i+1) nth
+
 down :: WaveletMatrix -> Maybe WaveletMatrix
 down wm = case (\(ZeroCounts z) -> VS.drop 1 z) (getZeroCounts wm) of
     z' | VS.null z' -> Nothing
