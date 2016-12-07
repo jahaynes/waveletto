@@ -89,7 +89,7 @@ instance Wavelet WaveletMatrix where
     rank = waveletMatrixRank
 
     {- For a given symbol, find its nth occurrence -}
-    select :: WaveletMatrix -> a -> Int -> Position
+    select :: Bits a => WaveletMatrix -> a -> Int -> Position
     select = waveletMatrixSelectSlow
 
     {- Return the length of the source -}
@@ -149,7 +149,7 @@ waveletMatrixSelectSlow wm_ a j_ = select' 0 (Just wm_) j_ 0
         | otherwise =
             let p' = p - rnk1Fast wm p
                 j' = select' (l+1) (down wm) j p'
-            select0VecSlow (getPayload wm) j'
+            in select0VecSlow (getPayload wm) j'
 
 {-  Just for reference  
 rnk1Slow :: WaveletMatrix -> Int -> Int

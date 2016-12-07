@@ -13,7 +13,7 @@ class Wavelet structure where
     rank :: Bits a => structure -> a -> Position -> Count
 
     {- For a given symbol, find its nth occurrence -}
-    select :: structure -> a -> Int -> Position
+    select :: Bits a => structure -> a -> Int -> Position
 
     {- Return the length of the source -}
     length :: structure -> Int
