@@ -90,7 +90,7 @@ instance Wavelet WaveletMatrix where
 
     {- For a given symbol, find its nth occurrence -}
     select :: WaveletMatrix -> a -> Int -> Position
-    select = error "Select not yet defined over Wavelet Matrix"
+    select = waveletMatrixSelectSlow
 
     {- Return the length of the source -}
     length :: WaveletMatrix -> Int
@@ -137,6 +137,20 @@ waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
                           i' = i - rnk1Fast wm i
                       in rnk' (down wm) (l+1) i' p'
 
+waveletMatrixSelectSlow :: Bits a => WaveletMatrix -> a -> Int -> Int
+waveletMatrixSelectSlow wm_ a j_ = select' 0 (Just wm_) j_ 0
+    where
+    select' _   Nothing j p = p + j
+    select' l (Just wm) j p
+        | testBit a l =
+            let p' = zeroesAtCurrentLayer wm + rnk1Fast wm p
+                j' = select' (l+1) (down wm) j p'
+            in select1VecSlow (getPayload wm) (j'-zeroesAtCurrentLayer wm)
+        | otherwise =
+            let p' = p - rnk1Fast wm p
+                j' = select' (l+1) (down wm) j p'
+            select0VecSlow (getPayload wm) j'
+
 {-  Just for reference  
 rnk1Slow :: WaveletMatrix -> Int -> Int
 rnk1Slow wm i
@@ -176,8 +190,8 @@ rankSkip wm wordsToSkip = go 0 wordsToSkip (getPayload wm)
             go (acc+count) (j+1) vec (remaining-64)
 
 {- Find the position of the nth 1-bit in a vector -}
-select0Vec :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
-select0Vec v = go 0 (VS.length v)
+select0VecSlow :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
+select0VecSlow v = go 0 (VS.length v)
     where
     go i len nth
         | i >= len = error "select1Vec rolled off edge"
@@ -190,8 +204,8 @@ select0Vec v = go 0 (VS.length v)
                 else go (i+1) len nth'
 
 {- Find the position of the nth 1-bit in a vector -}
-select1Vec :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
-select1Vec v = go 0 (VS.length v)
+select1VecSlow :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
+select1VecSlow v = go 0 (VS.length v)
     where
     go i len nth
         | i >= len = error "select1Vec rolled off edge"
