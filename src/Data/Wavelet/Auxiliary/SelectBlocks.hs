@@ -16,13 +16,13 @@ import System.Directory                                 (makeAbsolute)
 
 import Control.Monad    (zipWithM_)
 
-data Select0Blocks = Select0Blocks !Int !(Vector Int) deriving Show
-data Select1Blocks = Select1Blocks !Int !(Vector Int) deriving Show
+data Select0Blocks = Select0Blocks !Int !(Vector Int)
+data Select1Blocks = Select1Blocks !Int !(Vector Int)
 
 type NumberOfBits = Int
 
 data Chunk = ZeroChunk !Int
-           | OneChunk  !Int deriving (Eq, Show)
+           | OneChunk  !Int
 
 blockSize :: NumberOfBits
 blockSize = 256 --TODO investigate this size

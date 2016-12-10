@@ -15,7 +15,7 @@ import qualified Data.Vector.Storable.Mutable   as VM
 import           Data.Vector.Storable.MMap
 import System.Directory                                 (makeAbsolute)
 
-data RankBlocks = RankBlocks Int (Vector Int) deriving Show
+data RankBlocks = RankBlocks Int (Vector Int)
 
 type NumberOfWords = Int
 

@@ -7,9 +7,9 @@ import qualified Data.Vector.Storable as VS         (length, maximum)
 data Input a = Input { getInput :: Vector a
                      , getRequiredLayers :: Int
                      , getInputLength :: Int
-                     } deriving Show
+                     }
 
-prepareInput :: (Show a, FiniteBits a, Ord a, Num a, Storable a) => Vector a -> Input a
+prepareInput :: (FiniteBits a, Ord a, Num a, Storable a) => Vector a -> Input a
 prepareInput vec =
 
     let bitsPerElement = finiteBitSize maximumInputSymbol

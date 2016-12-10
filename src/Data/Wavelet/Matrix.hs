@@ -11,7 +11,6 @@ import Data.Wavelet.Auxiliary.SelectBlocks as S
 import Data.Wavelet.Matrix.Geometry                 (Geometry (..))
 import qualified Data.Wavelet.Matrix.Geometry as G
 import Data.Wavelet.Internal.Buffer
-import Data.Wavelet.Internal.BitOps                 (rnk1Vector64)
 import Data.Wavelet.Internal.Input as I
 import Data.Wavelet.Internal.Partition
 import Data.Wavelet.Internal.Shared                 (quot1, removeDirIfExists, removeFileIfExists)
@@ -34,11 +33,9 @@ data WaveletMatrix = WaveletMatrix
                    , getRankBlocks    :: RankBlocks
                    , getSelect0Blocks :: Select0Blocks
                    , getSelect1Blocks :: Select1Blocks
-                   } deriving Show
+                   }
 
 newtype ZeroCounts = ZeroCounts (Vector Int)
-instance Show ZeroCounts where
-    show (ZeroCounts vec) = show vec
 
 newtype ZeroBits = ZeroBits Int      
 
@@ -103,7 +100,6 @@ instance Wavelet WaveletMatrix where
     length :: WaveletMatrix -> Int
     length = G.getInputLength . getGeometry
 
-
 waveletMatrixAccess :: Bits a => WaveletMatrix -> Position -> a
 waveletMatrixAccess wm_ = accs' zeroBits 0 (Just wm_)
     where
@@ -144,21 +140,6 @@ waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
                           i' = i - rnk1Fast wm i
                       in rnk' (down wm) (l+1) i' p'
 
-{-  Just for reference
-waveletMatrixSelectSlow :: Bits a => WaveletMatrix -> a -> Int -> Int
-waveletMatrixSelectSlow wm_ a j_ = select' 0 (Just wm_) j_ 0
-    where
-    select' _   Nothing j p = p + j
-    select' l (Just wm) j p
-        | testBit a l =
-            let p' = zeroesAtCurrentLayer wm + rnk1Fast wm p
-                j' = select' (l+1) (down wm) j p'
-            in select1VecSlow (getPayload wm) (j'-zeroesAtCurrentLayer wm)
-        | otherwise =
-            let p' = p - rnk1Fast wm p
-                j' = select' (l+1) (down wm) j p'
-            in select0VecSlow (getPayload wm) j' -}
-
 waveletMatrixSelect :: Bits a => WaveletMatrix -> a -> Int -> Int
 waveletMatrixSelect wm_ a j_ = select' 0 (Just wm_) j_ 0
     where
@@ -172,13 +153,6 @@ waveletMatrixSelect wm_ a j_ = select' 0 (Just wm_) j_ 0
             let p' = p - rnk1Fast wm p
                 j' = select' (l+1) (down wm) j p'
             in S.select0WithLookup (getPayload wm) (getSelect0Blocks wm) j'
-
-{-  Just for reference  
-rnk1Slow :: WaveletMatrix -> Int -> Int
-rnk1Slow wm i
-    | i > (G.getInputLength . getGeometry $ wm) =
-                error "Sanity check failed (i > w64sPerLayer)"
-    | otherwise = rnk1Vector64 i (getPayload wm) -}
 
 zeroesAtCurrentLayer :: WaveletMatrix -> Int
 zeroesAtCurrentLayer = (\(ZeroCounts zc) -> zc ! 0) . getZeroCounts
@@ -210,51 +184,6 @@ rankSkip wm wordsToSkip = go 0 wordsToSkip (getPayload wm)
             let count = popCount (vec ! j)
             in
             go (acc+count) (j+1) vec (remaining-64)
-
-{- Find the position of the nth 1-bit in a vector -}
-select0VecSlow :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
-select0VecSlow v = go 0 (VS.length v)
-    where
-    go i len nth
-        | i >= len = error "select1Vec rolled off edge"
-        | otherwise =
-            let x = v ! i
-                width = finiteBitSize x
-                nth' = nth - (width - popCount x)
-            in if nth' < 0
-                then (width * i) + select0El x nth
-                else go (i+1) len nth'
-
-    {- Find the position of the nth 0-bit in a word -}
-    select0El :: FiniteBits a => a -> Int -> Int
-    select0El x = go' 0
-        where
-        go' :: Int -> Int -> Int
-        go' i nth | i >= finiteBitSize x = error "select1 rolled off edge"
-                | testBit x i = go' (i+1) nth
-                | otherwise   = if nth == 0 then i else go' (i+1) (nth-1)
-                
-{- Find the position of the nth 1-bit in a vector -}
-select1VecSlow :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
-select1VecSlow v = go 0 (VS.length v)
-    where
-    go i len nth
-        | i >= len = error "select1Vec rolled off edge"
-        | otherwise = 
-            let x = v ! i
-                nth' = nth - popCount x
-            in if nth' < 0
-                then (finiteBitSize x * i) + select1El x nth
-                else go (i+1) len nth'
-
-    {- Find the position of the nth 1-bit in a word -}
-    select1El :: FiniteBits a => a -> Int -> Int
-    select1El x = go' 0
-        where
-        go' :: Int -> Int -> Int
-        go' i nth | i >= finiteBitSize x = error "select1 rolled off edge"
-                | testBit x i = if nth == 0 then i else go' (i+1) (nth-1)
-                | otherwise   = go' (i+1) nth
 
 down :: WaveletMatrix -> Maybe WaveletMatrix
 down wm = case (\(ZeroCounts z) -> VS.drop 1 z) (getZeroCounts wm) of

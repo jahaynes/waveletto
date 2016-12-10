@@ -19,6 +19,7 @@ library
   exposed-modules:     Data.Wavelet
                        Data.Wavelet.Matrix
                        Data.Wavelet.Matrix.Geometry
+                       Data.Wavelet.Matrix.Reference
                        Data.Wavelet.Storage
                        Data.Wavelet.Auxiliary.RankBlocks
                        Data.Wavelet.Auxiliary.SelectBlocks

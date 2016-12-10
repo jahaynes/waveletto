@@ -10,7 +10,7 @@ data Geometry = Geometry
               { getInputLength  :: {-# UNPACK #-} !Int
               , getNumLayers    :: {-# UNPACK #-} !Int
               , getW64sPerLayer :: {-# UNPACK #-} !Int
-              } deriving Show
+              }
 
 loadGeometry :: IndexPath -> IO Geometry
 loadGeometry indexPath = do
