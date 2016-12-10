@@ -225,6 +225,15 @@ select0VecSlow v = go 0 (VS.length v)
                 then (width * i) + select0El x nth
                 else go (i+1) len nth'
 
+    {- Find the position of the nth 0-bit in a word -}
+    select0El :: FiniteBits a => a -> Int -> Int
+    select0El x = go' 0
+        where
+        go' :: Int -> Int -> Int
+        go' i nth | i >= finiteBitSize x = error "select1 rolled off edge"
+                | testBit x i = go' (i+1) nth
+                | otherwise   = if nth == 0 then i else go' (i+1) (nth-1)
+                
 {- Find the position of the nth 1-bit in a vector -}
 select1VecSlow :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
 select1VecSlow v = go 0 (VS.length v)
@@ -238,23 +247,14 @@ select1VecSlow v = go 0 (VS.length v)
                 then (finiteBitSize x * i) + select1El x nth
                 else go (i+1) len nth'
 
-{- Find the position of the nth 0-bit in a word -}
-select0El :: FiniteBits a => a -> Int -> Int
-select0El x = go 0
-    where
-    go :: Int -> Int -> Int
-    go i nth | i >= finiteBitSize x = error "select1 rolled off edge"
-             | testBit x i = go (i+1) nth
-             | otherwise   = if nth == 0 then i else go (i+1) (nth-1)
-
-{- Find the position of the nth 1-bit in a word -}
-select1El :: FiniteBits a => a -> Int -> Int
-select1El x = go 0
-    where
-    go :: Int -> Int -> Int
-    go i nth | i >= finiteBitSize x = error "select1 rolled off edge"
-             | testBit x i = if nth == 0 then i else go (i+1) (nth-1)
-             | otherwise   = go (i+1) nth
+    {- Find the position of the nth 1-bit in a word -}
+    select1El :: FiniteBits a => a -> Int -> Int
+    select1El x = go' 0
+        where
+        go' :: Int -> Int -> Int
+        go' i nth | i >= finiteBitSize x = error "select1 rolled off edge"
+                | testBit x i = if nth == 0 then i else go' (i+1) (nth-1)
+                | otherwise   = go' (i+1) nth
 
 down :: WaveletMatrix -> Maybe WaveletMatrix
 down wm = case (\(ZeroCounts z) -> VS.drop 1 z) (getZeroCounts wm) of
