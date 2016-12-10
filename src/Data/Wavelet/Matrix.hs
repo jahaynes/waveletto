@@ -4,8 +4,10 @@ module Data.Wavelet.Matrix where
 
 import Data.Wavelet
 import Data.Wavelet.Storage
-import Data.Wavelet.Auxiliary.RankBlocks       (RankBlocks, createRankBlocks, loadRankBlocks)
+import Data.Wavelet.Auxiliary.RankBlocks  as R     (RankBlocks, createRankBlocks, loadRankBlocks)
 import qualified Data.Wavelet.Auxiliary.RankBlocks as R
+import Data.Wavelet.Auxiliary.SelectBlocks as S (Select0Blocks, Select1Blocks, createSelectBlocks, loadSelectBlocks, down0, down1)
+
 import Data.Wavelet.Matrix.Geometry                 (Geometry (..))
 import qualified Data.Wavelet.Matrix.Geometry as G
 import Data.Wavelet.Internal.Buffer
@@ -26,10 +28,12 @@ import           Data.Word                          (Word64)
 import           System.Directory                   (makeAbsolute)
 
 data WaveletMatrix = WaveletMatrix 
-                   { getPayload      :: Vector Word64
-                   , getZeroCounts   :: ZeroCounts
-                   , getGeometry     :: Geometry
-                   , getRankBlocks   :: RankBlocks
+                   { getPayload       :: Vector Word64
+                   , getZeroCounts    :: ZeroCounts
+                   , getGeometry      :: Geometry
+                   , getRankBlocks    :: RankBlocks
+                   , getSelect0Blocks :: Select0Blocks
+                   , getSelect1Blocks :: Select1Blocks
                    } deriving Show
 
 newtype ZeroCounts = ZeroCounts (Vector Int)
@@ -64,12 +68,15 @@ instance FromDirectory WaveletMatrix where
         geometry <- G.loadGeometry indexPath
 
         rankBlocks <- loadRankBlocks indexPath geometry
+        (se0, se1) <- loadSelectBlocks indexPath geometry
 
         return $ WaveletMatrix
                      payload
                      zeroCounts
                      geometry
                      rankBlocks
+                     se0
+                     se1
 
     {- Create and return a new structure in this directory from a given vector -}
     create :: (Bits a, Ord a, Storable a) => IndexPath -> Input a -> IO WaveletMatrix
@@ -242,6 +249,8 @@ down wm = case (\(ZeroCounts z) -> VS.drop 1 z) (getZeroCounts wm) of
                           (ZeroCounts z')
                           (G.down (getGeometry wm))
                           (R.down (getRankBlocks wm))
+                          (S.down0 (getSelect0Blocks wm))
+                          (S.down1 (getSelect1Blocks wm))
 
 getFilePaths :: FilePath -> IO [FilePath]
 getFilePaths indexPath =
@@ -285,12 +294,15 @@ createWaveletMatrix input indexPath buffer = do
     payload' <- VS.unsafeFreeze payload
     zeroCounts' <- ZeroCounts <$> VS.unsafeFreeze zeroCounts
     rankBlocks <- createRankBlocks indexPath payload' geometry
+    (se0, se1) <- createSelectBlocks indexPath payload' geometry
 
     return $ WaveletMatrix
                  payload'
                  zeroCounts'
                  geometry
                  rankBlocks
+                 se0
+                 se1
 
     where
     setZeroCount :: IOVector Int -> LayerNum -> ZeroBits -> IO ()
