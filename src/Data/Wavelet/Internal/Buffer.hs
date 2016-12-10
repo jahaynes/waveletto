@@ -12,7 +12,7 @@ import System.Directory                 (makeAbsolute, createDirectoryIfMissing)
 data Buffer a = Buffer { getBufferPath :: FilePath
                        , getBuffer :: IOVector a }
 
-usingBuffer :: (Storable a) => Input a -> IndexPath -> (Buffer a -> IO b) -> IO b
+usingBuffer :: Storable a => Input a -> IndexPath -> (Buffer a -> IO b) -> IO b
 usingBuffer input indexPath f = do
 
     createDirectoryIfMissing True indexPath

@@ -15,7 +15,7 @@ import qualified Data.Vector.Storable.Mutable   as VM
 import           Data.Vector.Storable.MMap
 import System.Directory                                 (makeAbsolute)
 
-data RankBlocks = RankBlocks Int (Vector Int) deriving Show
+data RankBlocks = RankBlocks Int (Vector Int)
 
 type NumberOfWords = Int
 
@@ -25,18 +25,13 @@ blockSize = 64  --TODO investigate this size
 createRankBlocks :: IndexPath -> Vector Word64 -> Geometry -> IO RankBlocks
 createRankBlocks indexPath payload geometry = do
 
-    let totalBits = getInputLength geometry
-        bitsPerLayer = totalBits `quot1` blockSize
-        numLayers = getNumLayers geometry
-        totalSize = bitsPerLayer * numLayers
+    let numLayers = getNumLayers geometry
         w64sPerLayer = getW64sPerLayer geometry
         layers = chunksOf w64sPerLayer payload
+        fileSize = numLayers * (w64sPerLayer `quot` blockSize)
 
-    vm <- do
-        let fileSize = numLayers * (w64sPerLayer `quot` blockSize)
-        rankPath <- getRankPath indexPath
-        removeFileIfExists rankPath
-        unsafeMMapMVector rankPath ReadWriteEx (Just (0, fileSize)) :: IO (VM.IOVector Int)
+    rankPath <- getRankPath indexPath
+    vm <- recreateFileWithSize rankPath fileSize
 
     let numW64sInEachRankLayer = (w64sPerLayer `quot1` blockSize) - 1
     processLayer vm 0 layers
@@ -44,7 +39,7 @@ createRankBlocks indexPath payload geometry = do
 
     where
     processLayer :: VM.IOVector Int -> Int -> [Vector Word64] -> IO ()
-    processLayer vm outPtr         [] = return ()
+    processLayer  _      _         [] = return ()
     processLayer vm outPtr (layer:ls) = do
 
         let payLoadBlocks = chunksOf blockSize layer

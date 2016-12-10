@@ -13,9 +13,10 @@ rnk1Vector64 n vec =
             bitParts = rnk1Word64 bitsToCheck . VS.head . VS.drop wordsToCheck $ vec
         in wordParts + bitParts
 
-{- Count the number of 1-bits in one word64, in the bit range x[0..n] -}
-rnk1Word64 :: Int -> Word64 -> Int
-rnk1Word64 n x =
-    let mask = (1 `shiftL` n) - 1
-    in popCount (mask .&. x)
-{-# INLINE rnk1Word64 #-}
+    where
+    {- Count the number of 1-bits in one word64, in the bit range x[0..n'] -}
+    rnk1Word64 :: Int -> Word64 -> Int
+    rnk1Word64 n' x =
+        let mask = (1 `shiftL` n') - 1
+        in popCount (mask .&. x)
+    {-# INLINE rnk1Word64 #-}

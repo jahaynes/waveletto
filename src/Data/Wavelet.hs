@@ -16,4 +16,4 @@ class Wavelet structure where
     select :: Bits a => structure -> a -> Int -> Position
 
     {- Return the length of the source -}
-    length :: structure -> Int
+    getInputLength :: structure -> Int

@@ -2,20 +2,18 @@
 
 module Data.Wavelet.Matrix where
 
-import Data.Wavelet
-import Data.Wavelet.Storage
-import Data.Wavelet.Auxiliary.RankBlocks  as R     (RankBlocks, createRankBlocks, loadRankBlocks)
-import qualified Data.Wavelet.Auxiliary.RankBlocks as R
-import Data.Wavelet.Auxiliary.SelectBlocks as S    
-
-import Data.Wavelet.Matrix.Geometry                 (Geometry (..))
-import qualified Data.Wavelet.Matrix.Geometry as G
-import Data.Wavelet.Internal.Buffer
-import Data.Wavelet.Internal.BitOps                 (rnk1Vector64)
-import Data.Wavelet.Internal.Input as I
-import Data.Wavelet.Internal.Partition
-import Data.Wavelet.Internal.Shared                 (quot1, removeDirIfExists, removeFileIfExists)
-import Data.Wavelet.Internal.Types
+import           Data.Wavelet
+import           Data.Wavelet.Storage
+import           Data.Wavelet.Auxiliary.RankBlocks            (RankBlocks (..), createRankBlocks, loadRankBlocks)
+import qualified Data.Wavelet.Auxiliary.RankBlocks   as R
+import           Data.Wavelet.Auxiliary.SelectBlocks as S
+import           Data.Wavelet.Matrix.Geometry                 (Geometry (..), loadGeometry, saveGeometry, getW64sPerLayer)
+import qualified Data.Wavelet.Matrix.Geometry        as G     (down, getInputLength)
+import           Data.Wavelet.Internal.Buffer                 (Buffer, usingBuffer, getBuffer)
+import           Data.Wavelet.Internal.Input as I             (Input, getRequiredLayers, getInputLength)         
+import           Data.Wavelet.Internal.Partition              (inPlaceStableSortByBitN)
+import           Data.Wavelet.Internal.Shared                 (quot1, removeDirIfExists, removeFileIfExists)
+import           Data.Wavelet.Internal.Types
 
 import           Control.Monad                      (forM_)
 import           Data.Bits                          
@@ -27,18 +25,16 @@ import           Data.Vector.Storable.MMap
 import           Data.Word                          (Word64)
 import           System.Directory                   (makeAbsolute)
 
-data WaveletMatrix = WaveletMatrix 
+data WaveletMatrix = WaveletMatrix
                    { getPayload       :: Vector Word64
                    , getZeroCounts    :: ZeroCounts
                    , getGeometry      :: Geometry
                    , getRankBlocks    :: RankBlocks
                    , getSelect0Blocks :: Select0Blocks
                    , getSelect1Blocks :: Select1Blocks
-                   } deriving Show
+                   }
 
 newtype ZeroCounts = ZeroCounts (Vector Int)
-instance Show ZeroCounts where
-    show (ZeroCounts vec) = show vec
 
 newtype ZeroBits = ZeroBits Int      
 
@@ -65,7 +61,7 @@ instance FromDirectory WaveletMatrix where
 
         payload <- unsafeMMapVector waveletMatrixPath Nothing
         zeroCounts <- ZeroCounts <$> unsafeMMapVector zeroCountsPath Nothing
-        geometry <- G.loadGeometry indexPath
+        geometry <- loadGeometry indexPath
 
         rankBlocks <- loadRankBlocks indexPath geometry
         (se0, se1) <- loadSelectBlocks indexPath geometry
@@ -100,9 +96,8 @@ instance Wavelet WaveletMatrix where
     select = waveletMatrixSelect
 
     {- Return the length of the source -}
-    length :: WaveletMatrix -> Int
-    length = G.getInputLength . getGeometry
-
+    getInputLength :: WaveletMatrix -> Int
+    getInputLength = G.getInputLength . getGeometry
 
 waveletMatrixAccess :: Bits a => WaveletMatrix -> Position -> a
 waveletMatrixAccess wm_ = accs' zeroBits 0 (Just wm_)
@@ -144,21 +139,6 @@ waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
                           i' = i - rnk1Fast wm i
                       in rnk' (down wm) (l+1) i' p'
 
-{-  Just for reference
-waveletMatrixSelectSlow :: Bits a => WaveletMatrix -> a -> Int -> Int
-waveletMatrixSelectSlow wm_ a j_ = select' 0 (Just wm_) j_ 0
-    where
-    select' _   Nothing j p = p + j
-    select' l (Just wm) j p
-        | testBit a l =
-            let p' = zeroesAtCurrentLayer wm + rnk1Fast wm p
-                j' = select' (l+1) (down wm) j p'
-            in select1VecSlow (getPayload wm) (j'-zeroesAtCurrentLayer wm)
-        | otherwise =
-            let p' = p - rnk1Fast wm p
-                j' = select' (l+1) (down wm) j p'
-            in select0VecSlow (getPayload wm) j' -}
-
 waveletMatrixSelect :: Bits a => WaveletMatrix -> a -> Int -> Int
 waveletMatrixSelect wm_ a j_ = select' 0 (Just wm_) j_ 0
     where
@@ -173,13 +153,6 @@ waveletMatrixSelect wm_ a j_ = select' 0 (Just wm_) j_ 0
                 j' = select' (l+1) (down wm) j p'
             in S.select0WithLookup (getPayload wm) (getSelect0Blocks wm) j'
 
-{-  Just for reference  
-rnk1Slow :: WaveletMatrix -> Int -> Int
-rnk1Slow wm i
-    | i > (G.getInputLength . getGeometry $ wm) =
-                error "Sanity check failed (i > w64sPerLayer)"
-    | otherwise = rnk1Vector64 i (getPayload wm) -}
-
 zeroesAtCurrentLayer :: WaveletMatrix -> Int
 zeroesAtCurrentLayer = (\(ZeroCounts zc) -> zc ! 0) . getZeroCounts
 
@@ -188,79 +161,35 @@ rnk1Fast wm i
     | i > (G.getInputLength . getGeometry $ wm) =
                 error "Sanity check failed (i > w64sPerLayer)"
     | otherwise =
-        let (R.RankBlocks _ rbvec) = getRankBlocks wm
+        let (RankBlocks _ rbvec) = getRankBlocks wm
             (fullBlocks,remainBits) = i `quotRem` (64 * R.blockSize)
             blockLookup = fullBlocks - 1
             precomputedRank =
                 if blockLookup == -1
                     then 0
                     else rbvec ! blockLookup
-            lastBits = rankSkip wm (fullBlocks * R.blockSize) remainBits
+            lastBits = rankSkip (fullBlocks * R.blockSize) remainBits
         in precomputedRank + lastBits
 
-rankSkip :: WaveletMatrix -> Int -> Int -> Int
-rankSkip wm wordsToSkip = go 0 wordsToSkip (getPayload wm)
     where
-    go !acc j vec remaining
-        | remaining < 64 =
-            let mask = (1 `shiftL` remaining) - 1
-            in
-            acc + popCount ( mask .&. (vec ! j) )
-        | otherwise =
-            let count = popCount (vec ! j)
-            in
-            go (acc+count) (j+1) vec (remaining-64)
-
-{- Find the position of the nth 1-bit in a vector -}
-select0VecSlow :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
-select0VecSlow v = go 0 (VS.length v)
-    where
-    go i len nth
-        | i >= len = error "select1Vec rolled off edge"
-        | otherwise =
-            let x = v ! i
-                width = finiteBitSize x
-                nth' = nth - (width - popCount x)
-            in if nth' < 0
-                then (width * i) + select0El x nth
-                else go (i+1) len nth'
-
-    {- Find the position of the nth 0-bit in a word -}
-    select0El :: FiniteBits a => a -> Int -> Int
-    select0El x = go' 0
+    rankSkip :: Int -> Int -> Int
+    rankSkip wordsToSkip = go 0 wordsToSkip (getPayload wm)
         where
-        go' :: Int -> Int -> Int
-        go' i nth | i >= finiteBitSize x = error "select1 rolled off edge"
-                | testBit x i = go' (i+1) nth
-                | otherwise   = if nth == 0 then i else go' (i+1) (nth-1)
-                
-{- Find the position of the nth 1-bit in a vector -}
-select1VecSlow :: (FiniteBits a, Storable a) => Vector a -> Int -> Int
-select1VecSlow v = go 0 (VS.length v)
-    where
-    go i len nth
-        | i >= len = error "select1Vec rolled off edge"
-        | otherwise = 
-            let x = v ! i
-                nth' = nth - popCount x
-            in if nth' < 0
-                then (finiteBitSize x * i) + select1El x nth
-                else go (i+1) len nth'
-
-    {- Find the position of the nth 1-bit in a word -}
-    select1El :: FiniteBits a => a -> Int -> Int
-    select1El x = go' 0
-        where
-        go' :: Int -> Int -> Int
-        go' i nth | i >= finiteBitSize x = error "select1 rolled off edge"
-                | testBit x i = if nth == 0 then i else go' (i+1) (nth-1)
-                | otherwise   = go' (i+1) nth
+        go !acc j vec remaining
+            | remaining < 64 =
+                let mask = (1 `shiftL` remaining) - 1
+                in
+                acc + popCount ( mask .&. (vec ! j) )
+            | otherwise =
+                let count = popCount (vec ! j)
+                in
+                go (acc+count) (j+1) vec (remaining-64)
 
 down :: WaveletMatrix -> Maybe WaveletMatrix
 down wm = case (\(ZeroCounts z) -> VS.drop 1 z) (getZeroCounts wm) of
     z' | VS.null z' -> Nothing
        | otherwise -> Just $ WaveletMatrix
-                          (VS.drop (1 * G.getW64sPerLayer (getGeometry wm)) (getPayload wm))
+                          (VS.drop (1 * getW64sPerLayer (getGeometry wm)) (getPayload wm))
                           (ZeroCounts z')
                           (G.down (getGeometry wm))
                           (R.down (getRankBlocks wm))
@@ -272,7 +201,7 @@ getFilePaths indexPath =
     mapM makeSubPath [filenameWaveletMatrix,filenameZeroCounts]
     where
     makeSubPath subPath = makeAbsolute . concat $ [indexPath, "/", subPath]
-    
+
 createWaveletMatrix :: (Bits a, Ord a, Storable a) => Input a -> IndexPath -> Buffer a -> IO WaveletMatrix
 createWaveletMatrix input indexPath buffer = do
 
@@ -296,7 +225,7 @@ createWaveletMatrix input indexPath buffer = do
                       (Just (0, requiredLayers)) :: IO (IOVector Int)
 
     let geometry = Geometry inputLength requiredLayers w64sPerLayer
-    G.saveGeometry indexPath geometry
+    saveGeometry indexPath geometry
 
     forM_ (getLayerRange requiredLayers) $ \layer -> do
         vs <- VS.unsafeFreeze (getBuffer buffer)
