@@ -27,11 +27,6 @@ data Chunk = ZeroChunk !Int
 blockSize :: NumberOfBits
 blockSize = 256 --TODO investigate this size
 
-recreateFileWithSize :: Storable a => FilePath -> Int -> IO (VM.IOVector a)
-recreateFileWithSize fp fsize = do
-    removeFileIfExists fp
-    unsafeMMapMVector fp ReadWriteEx (Just (0, fsize))
-
 createSelectBlocks :: IndexPath -> Vector Word64 -> Geometry -> IO (Select0Blocks, Select1Blocks)
 createSelectBlocks indexPath payload geometry = do
 

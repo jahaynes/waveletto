@@ -201,7 +201,7 @@ getFilePaths indexPath =
     mapM makeSubPath [filenameWaveletMatrix,filenameZeroCounts]
     where
     makeSubPath subPath = makeAbsolute . concat $ [indexPath, "/", subPath]
-    
+
 createWaveletMatrix :: (Bits a, Ord a, Storable a) => Input a -> IndexPath -> Buffer a -> IO WaveletMatrix
 createWaveletMatrix input indexPath buffer = do
 
