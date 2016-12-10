@@ -97,8 +97,8 @@ instance Wavelet WaveletMatrix where
     select = waveletMatrixSelect
 
     {- Return the length of the source -}
-    length :: WaveletMatrix -> Int
-    length = G.getInputLength . getGeometry
+    getInputLength :: WaveletMatrix -> Int
+    getInputLength = G.getInputLength . getGeometry
 
 waveletMatrixAccess :: Bits a => WaveletMatrix -> Position -> a
 waveletMatrixAccess wm_ = accs' zeroBits 0 (Just wm_)
