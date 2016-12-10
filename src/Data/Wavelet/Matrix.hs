@@ -6,7 +6,7 @@ import Data.Wavelet
 import Data.Wavelet.Storage
 import Data.Wavelet.Auxiliary.RankBlocks  as R     (RankBlocks, createRankBlocks, loadRankBlocks)
 import qualified Data.Wavelet.Auxiliary.RankBlocks as R
-import Data.Wavelet.Auxiliary.SelectBlocks as S (Select0Blocks, Select1Blocks, createSelectBlocks, loadSelectBlocks, down0, down1)
+import Data.Wavelet.Auxiliary.SelectBlocks as S    
 
 import Data.Wavelet.Matrix.Geometry                 (Geometry (..))
 import qualified Data.Wavelet.Matrix.Geometry as G
@@ -97,7 +97,7 @@ instance Wavelet WaveletMatrix where
 
     {- For a given symbol, find its nth occurrence -}
     select :: Bits a => WaveletMatrix -> a -> Int -> Position
-    select = waveletMatrixSelectSlow
+    select = waveletMatrixSelect
 
     {- Return the length of the source -}
     length :: WaveletMatrix -> Int
@@ -144,6 +144,7 @@ waveletMatrixRank wm_ a i_ = rnk' (Just wm_) 0 i_ 0
                           i' = i - rnk1Fast wm i
                       in rnk' (down wm) (l+1) i' p'
 
+{-  Just for reference
 waveletMatrixSelectSlow :: Bits a => WaveletMatrix -> a -> Int -> Int
 waveletMatrixSelectSlow wm_ a j_ = select' 0 (Just wm_) j_ 0
     where
@@ -156,7 +157,21 @@ waveletMatrixSelectSlow wm_ a j_ = select' 0 (Just wm_) j_ 0
         | otherwise =
             let p' = p - rnk1Fast wm p
                 j' = select' (l+1) (down wm) j p'
-            in select0VecSlow (getPayload wm) j'
+            in select0VecSlow (getPayload wm) j' -}
+
+waveletMatrixSelect :: Bits a => WaveletMatrix -> a -> Int -> Int
+waveletMatrixSelect wm_ a j_ = select' 0 (Just wm_) j_ 0
+    where
+    select' _   Nothing j p = p + j
+    select' l (Just wm) j p
+        | testBit a l =
+            let p' = zeroesAtCurrentLayer wm + rnk1Fast wm p
+                j' = select' (l+1) (down wm) j p'
+            in S.select1WithLookup (getPayload wm) (getSelect1Blocks wm) (j'-zeroesAtCurrentLayer wm)
+        | otherwise =
+            let p' = p - rnk1Fast wm p
+                j' = select' (l+1) (down wm) j p'
+            in S.select0WithLookup (getPayload wm) (getSelect0Blocks wm) j'
 
 {-  Just for reference  
 rnk1Slow :: WaveletMatrix -> Int -> Int
