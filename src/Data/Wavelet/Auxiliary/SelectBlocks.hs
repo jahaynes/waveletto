@@ -8,7 +8,7 @@ import Data.Wavelet.Matrix.Geometry
 
 import Data.Bits                                        (testBit)
 import Data.Word                                        (Word64)
-import           Data.Vector.Storable                   (Vector, Storable, (!))
+import           Data.Vector.Storable                   (Vector, (!))
 import qualified Data.Vector.Storable           as VS
 import qualified Data.Vector.Storable.Mutable   as VM
 import           Data.Vector.Storable.MMap
