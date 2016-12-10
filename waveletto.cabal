@@ -21,6 +21,7 @@ library
                        Data.Wavelet.Matrix.Geometry
                        Data.Wavelet.Storage
                        Data.Wavelet.Auxiliary.RankBlocks
+                       Data.Wavelet.Auxiliary.SelectBlocks
                        Data.Wavelet.Internal.BitOps
                        Data.Wavelet.Internal.Buffer
                        Data.Wavelet.Internal.Input
