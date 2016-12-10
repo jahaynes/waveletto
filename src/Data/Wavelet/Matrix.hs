@@ -2,19 +2,18 @@
 
 module Data.Wavelet.Matrix where
 
-import Data.Wavelet
-import Data.Wavelet.Storage
-import Data.Wavelet.Auxiliary.RankBlocks  as R     (RankBlocks, createRankBlocks, loadRankBlocks)
-import qualified Data.Wavelet.Auxiliary.RankBlocks as R
-import Data.Wavelet.Auxiliary.SelectBlocks as S    
-
-import Data.Wavelet.Matrix.Geometry                 (Geometry (..))
-import qualified Data.Wavelet.Matrix.Geometry as G
-import Data.Wavelet.Internal.Buffer
-import Data.Wavelet.Internal.Input as I
-import Data.Wavelet.Internal.Partition
-import Data.Wavelet.Internal.Shared                 (quot1, removeDirIfExists, removeFileIfExists)
-import Data.Wavelet.Internal.Types
+import           Data.Wavelet
+import           Data.Wavelet.Storage
+import           Data.Wavelet.Auxiliary.RankBlocks            (RankBlocks (..), createRankBlocks, loadRankBlocks)
+import qualified Data.Wavelet.Auxiliary.RankBlocks   as R
+import           Data.Wavelet.Auxiliary.SelectBlocks as S
+import           Data.Wavelet.Matrix.Geometry                 (Geometry (..), loadGeometry, saveGeometry, getW64sPerLayer)
+import qualified Data.Wavelet.Matrix.Geometry        as G     (down, getInputLength)
+import           Data.Wavelet.Internal.Buffer                 (Buffer, usingBuffer, getBuffer)
+import           Data.Wavelet.Internal.Input as I             (Input, getRequiredLayers, getInputLength)         
+import           Data.Wavelet.Internal.Partition              (inPlaceStableSortByBitN)
+import           Data.Wavelet.Internal.Shared                 (quot1, removeDirIfExists, removeFileIfExists)
+import           Data.Wavelet.Internal.Types
 
 import           Control.Monad                      (forM_)
 import           Data.Bits                          
@@ -26,7 +25,7 @@ import           Data.Vector.Storable.MMap
 import           Data.Word                          (Word64)
 import           System.Directory                   (makeAbsolute)
 
-data WaveletMatrix = WaveletMatrix 
+data WaveletMatrix = WaveletMatrix
                    { getPayload       :: Vector Word64
                    , getZeroCounts    :: ZeroCounts
                    , getGeometry      :: Geometry
@@ -62,7 +61,7 @@ instance FromDirectory WaveletMatrix where
 
         payload <- unsafeMMapVector waveletMatrixPath Nothing
         zeroCounts <- ZeroCounts <$> unsafeMMapVector zeroCountsPath Nothing
-        geometry <- G.loadGeometry indexPath
+        geometry <- loadGeometry indexPath
 
         rankBlocks <- loadRankBlocks indexPath geometry
         (se0, se1) <- loadSelectBlocks indexPath geometry
@@ -162,34 +161,35 @@ rnk1Fast wm i
     | i > (G.getInputLength . getGeometry $ wm) =
                 error "Sanity check failed (i > w64sPerLayer)"
     | otherwise =
-        let (R.RankBlocks _ rbvec) = getRankBlocks wm
+        let (RankBlocks _ rbvec) = getRankBlocks wm
             (fullBlocks,remainBits) = i `quotRem` (64 * R.blockSize)
             blockLookup = fullBlocks - 1
             precomputedRank =
                 if blockLookup == -1
                     then 0
                     else rbvec ! blockLookup
-            lastBits = rankSkip wm (fullBlocks * R.blockSize) remainBits
+            lastBits = rankSkip (fullBlocks * R.blockSize) remainBits
         in precomputedRank + lastBits
 
-rankSkip :: WaveletMatrix -> Int -> Int -> Int
-rankSkip wm wordsToSkip = go 0 wordsToSkip (getPayload wm)
     where
-    go !acc j vec remaining
-        | remaining < 64 =
-            let mask = (1 `shiftL` remaining) - 1
-            in
-            acc + popCount ( mask .&. (vec ! j) )
-        | otherwise =
-            let count = popCount (vec ! j)
-            in
-            go (acc+count) (j+1) vec (remaining-64)
+    rankSkip :: Int -> Int -> Int
+    rankSkip wordsToSkip = go 0 wordsToSkip (getPayload wm)
+        where
+        go !acc j vec remaining
+            | remaining < 64 =
+                let mask = (1 `shiftL` remaining) - 1
+                in
+                acc + popCount ( mask .&. (vec ! j) )
+            | otherwise =
+                let count = popCount (vec ! j)
+                in
+                go (acc+count) (j+1) vec (remaining-64)
 
 down :: WaveletMatrix -> Maybe WaveletMatrix
 down wm = case (\(ZeroCounts z) -> VS.drop 1 z) (getZeroCounts wm) of
     z' | VS.null z' -> Nothing
        | otherwise -> Just $ WaveletMatrix
-                          (VS.drop (1 * G.getW64sPerLayer (getGeometry wm)) (getPayload wm))
+                          (VS.drop (1 * getW64sPerLayer (getGeometry wm)) (getPayload wm))
                           (ZeroCounts z')
                           (G.down (getGeometry wm))
                           (R.down (getRankBlocks wm))
@@ -225,7 +225,7 @@ createWaveletMatrix input indexPath buffer = do
                       (Just (0, requiredLayers)) :: IO (IOVector Int)
 
     let geometry = Geometry inputLength requiredLayers w64sPerLayer
-    G.saveGeometry indexPath geometry
+    saveGeometry indexPath geometry
 
     forM_ (getLayerRange requiredLayers) $ \layer -> do
         vs <- VS.unsafeFreeze (getBuffer buffer)
