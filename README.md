@@ -1,5 +1,5 @@
 # waveletto
-Wavelet Matrices
+An implementation of the Wavelet Matrix based on the paper https://www.dcc.uchile.cl/~gnavarro/ps/spire12.4.pdf by Claude and Navarro.
 
     import Data.Wavelet.Storage         (create, load)
     import Data.Wavelet.Internal.Input  (prepareInput)
