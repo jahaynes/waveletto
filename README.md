@@ -26,9 +26,12 @@ An implementation of the Wavelet Matrix based on the paper https://www.dcc.uchil
 
         -- Retrieve the element at position 7
         print (access matrix 7 :: Int)
+        -- 4
 
         -- Count how many instances of '3' there are in the range [0,len)
         print (rank matrix (3::Int) len)
+        -- 2
 
         -- Find the second occurrence of '5'
         print (select matrix (5::Int) 1)
+        -- 12
