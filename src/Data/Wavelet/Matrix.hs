@@ -3,6 +3,7 @@
 module Data.Wavelet.Matrix where
 
 import           Data.Wavelet
+import           Data.Wavelet.Bulk
 import           Data.Wavelet.Storage
 import           Data.Wavelet.Auxiliary.RankBlocks            (RankBlocks (..), createRankBlocks, loadRankBlocks)
 import qualified Data.Wavelet.Auxiliary.RankBlocks   as R
@@ -22,7 +23,7 @@ import qualified Data.Vector.Storable         as VS
 import           Data.Vector.Storable.Mutable       (IOVector)
 import qualified Data.Vector.Storable.Mutable as VM
 import           Data.Vector.Storable.MMap          
-import           Data.Word                          (Word64)
+import           Data.Word                          
 import           System.Directory                   (makeAbsolute)
 
 data WaveletMatrix = WaveletMatrix
@@ -86,18 +87,61 @@ instance Wavelet WaveletMatrix where
     {- Return the element at a given position -}
     access :: Bits a => WaveletMatrix -> Position -> a
     access = waveletMatrixAccess
+    {-# INLINABLE access #-}
+    {-# SPECIALIZE access :: WaveletMatrix -> Position -> Word8  #-}
+    {-# SPECIALIZE access :: WaveletMatrix -> Position -> Word32 #-}
 
     {- Count the number of a given symbol up to a given position -}
     rank :: Bits a => WaveletMatrix -> a -> Position -> Count
     rank = waveletMatrixRank
+    {-# INLINABLE rank #-}
+    {-# SPECIALIZE rank :: WaveletMatrix -> Word8  -> Position -> Count #-}
+    {-# SPECIALIZE rank :: WaveletMatrix -> Word32 -> Position -> Count #-}
 
     {- For a given symbol, find its nth occurrence -}
     select :: Bits a => WaveletMatrix -> a -> Int -> Position
     select = waveletMatrixSelect
+    {-# INLINABLE select #-}
+    {-# SPECIALIZE select :: WaveletMatrix -> Word8  -> Int -> Position #-}
+    {-# SPECIALIZE select :: WaveletMatrix -> Word32 -> Int -> Position #-}
 
     {- Return the length of the source -}
     getInputLength :: WaveletMatrix -> Int
     getInputLength = G.getInputLength . getGeometry
+
+instance BulkWavelet WaveletMatrix where
+
+    {- Return many elements when given many positions -}
+    accessMany :: (Bits a, Storable a) => WaveletMatrix -> Vector Position -> Vector a
+    accessMany = waveletMatrixAccessMany
+    {-# INLINABLE accessMany #-}
+    {-# SPECIALIZE accessMany :: WaveletMatrix -> Vector Position -> Vector Word8  #-}
+    {-# SPECIALIZE accessMany :: WaveletMatrix -> Vector Position -> Vector Word32 #-}
+
+waveletMatrixAccessMany :: (Bits a, Storable a) => WaveletMatrix -> Vector Position -> Vector a
+waveletMatrixAccessMany wm_ ps_ = accs' (VS.replicate (VS.length ps_) zeroBits) 0 (Just wm_) ps_
+    where
+    accs' !vAcc _   Nothing  _ = vAcc
+    accs'  vAcc l (Just wm) ps = do
+
+        let testeds = VS.map (\p -> do
+                -- Find which bits in which words to test
+                let (wd, bt) = p `quotRem` 64
+                --Test them
+                testBit (getPayload wm ! wd) bt) ps
+
+        -- Work out the positions to test in the next layer
+            ps' = VS.zipWith (\t p -> if t
+                                          then rnk1Fast wm p + zeroesAtCurrentLayer wm
+                                          else p - rnk1Fast wm p) testeds ps
+
+        -- Set bits on our accumulators
+            vAcc' = VS.zipWith (\t a -> if t
+                                          then setBit a l
+                                          else a) testeds vAcc
+
+        -- Process the next layer
+        accs' vAcc' (l+1) (down wm) ps'
 
 waveletMatrixAccess :: Bits a => WaveletMatrix -> Position -> a
 waveletMatrixAccess wm_ = accs' zeroBits 0 (Just wm_)

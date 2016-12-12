@@ -17,6 +17,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Data.Wavelet
+                       Data.Wavelet.Bulk
                        Data.Wavelet.Matrix
                        Data.Wavelet.Matrix.Geometry
                        Data.Wavelet.Matrix.Reference
