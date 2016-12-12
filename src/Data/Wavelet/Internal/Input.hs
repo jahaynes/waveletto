@@ -9,7 +9,7 @@ data Input a = Input { getInput :: Vector a
                      , getInputLength :: Int
                      }
 
-prepareInput :: (FiniteBits a, Ord a, Num a, Storable a) => Vector a -> Input a
+prepareInput :: (FiniteBits a, Ord a, Storable a) => Vector a -> Input a
 prepareInput vec =
 
     let bitsPerElement = finiteBitSize maximumInputSymbol
