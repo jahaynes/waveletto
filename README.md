@@ -1,6 +1,8 @@
 # waveletto
 An implementation of the Wavelet Matrix based on the paper https://www.dcc.uchile.cl/~gnavarro/ps/spire12.4.pdf by Claude and Navarro.
 
+The functions `access`, `rank`, and `select` are supplied (none of whose runtimes depend on the length of the input!)
+
     import Data.Wavelet.Storage         (create, load)
     import Data.Wavelet.Internal.Input  (prepareInput)
     import Data.Wavelet.Matrix          (WaveletMatrix)
