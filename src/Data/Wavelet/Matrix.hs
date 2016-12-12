@@ -3,6 +3,7 @@
 module Data.Wavelet.Matrix where
 
 import           Data.Wavelet
+import           Data.Wavelet.Bulk
 import           Data.Wavelet.Storage
 import           Data.Wavelet.Auxiliary.RankBlocks            (RankBlocks (..), createRankBlocks, loadRankBlocks)
 import qualified Data.Wavelet.Auxiliary.RankBlocks   as R
@@ -98,6 +99,33 @@ instance Wavelet WaveletMatrix where
     {- Return the length of the source -}
     getInputLength :: WaveletMatrix -> Int
     getInputLength = G.getInputLength . getGeometry
+
+instance BulkWavelet WaveletMatrix where
+
+    {- Return many elements when given many positions -}
+    accessMany :: (Bits a, Storable a) => WaveletMatrix -> Vector Position -> Vector a
+    accessMany = waveletMatrixAccessMany
+
+waveletMatrixAccessMany :: (Bits a, Storable a) => WaveletMatrix -> Vector Position -> Vector a
+waveletMatrixAccessMany wm_ ps_ = accs' (VS.replicate (VS.length ps_) zeroBits) 0 (Just wm_) ps_
+    where
+    accs' !vAcc _   Nothing  _ = vAcc
+    accs'  vAcc l (Just wm) ps = do
+
+        let wds = VS.map (`quot` 64) ps
+            bts = VS.map (`rem` 64) ps
+
+            testeds = VS.zipWith (\wd bt -> testBit (getPayload wm ! wd) bt) wds bts
+
+            ps' = VS.zipWith (\t p -> if t
+                                          then rnk1Fast wm p + zeroesAtCurrentLayer wm
+                                          else p - rnk1Fast wm p) testeds ps
+
+            vAcc' = VS.zipWith (\t a -> if t
+                                          then setBit a l
+                                          else a) testeds vAcc
+
+        accs' vAcc' (l+1) (down wm) ps'
 
 waveletMatrixAccess :: Bits a => WaveletMatrix -> Position -> a
 waveletMatrixAccess wm_ = accs' zeroBits 0 (Just wm_)
