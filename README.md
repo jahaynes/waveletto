@@ -1,8 +1,15 @@
 # waveletto
 An implementation of the Wavelet Matrix based on the paper https://www.dcc.uchile.cl/~gnavarro/ps/spire12.4.pdf by Claude and Navarro.
 
-The functions `access`, `rank`, and `select` are supplied (none of whose runtimes depend on the length of the input!)
+The functions `access`, `rank`, and `select` are supplied:
 
+- `access(p)` returns the element at position p
+- `rank(x,p)` returns the number of element xs before position p
+- `select(x,n)` returns the position of the nth occurrence of x
+
+These functions run in O(log σ), where σ is the size of the alphabet, not the length of the input.
+
+```haskell
     import Data.Wavelet.Storage         (create, load)
     import Data.Wavelet.Internal.Input  (prepareInput)
     import Data.Wavelet.Matrix          (WaveletMatrix)
@@ -23,7 +30,7 @@ The functions `access`, `rank`, and `select` are supplied (none of whose runtime
         --Create a wavelet matrix on disk at "somepath"
         matrix <- create "somePath" (prepareInput input) :: IO WaveletMatrix
 
-        --Load an existing wavelet matrix at "somepath"
+        --Or, load an existing wavelet matrix at "somepath"
         --matrix <- load "somePath" :: IO WaveletMatrix
 
         -- Retrieve the element at position 7
@@ -37,3 +44,4 @@ The functions `access`, `rank`, and `select` are supplied (none of whose runtime
         -- Find the second occurrence of '5'
         print (select matrix (5::Int) 1)
         -- 12
+```
